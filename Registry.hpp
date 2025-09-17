@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <vector>
+#include <array>
 
 #include "Component.hpp"
 
@@ -28,13 +29,13 @@ namespace ECS {
 
     class Registry {
         public:
-            Registry() {
-                m_pool_list.reserve(UINT16_MAX);
-            };
+            Registry() {}
             ~Registry() {
-                for (const auto &it : m_pool_list)
-                    delete it;
-            };
+                for (const auto &it : m_pool_list) {
+                    if (it != nullptr)
+                        delete it;
+                }
+            }
 
             /**
              * @brief Checks if a component type exists in the registry.
@@ -46,7 +47,7 @@ namespace ECS {
              * @return true if the component type exists and has an associated pool, false otherwise.
              */
             bool componentExists(uint16_t type_id) {
-                return type_id < m_pool_list.size() && m_pool_list[type_id] != nullptr;
+                return m_pool_list[type_id] != nullptr;
             }
 
             /**
@@ -71,7 +72,7 @@ namespace ECS {
                     return false;
 
                 uint16_t type_id = ComponentTypeId::get<T>();
-                m_pool_list.push_back(new ComponentPool<T>());
+                m_pool_list[type_id] = static_cast<IComponentPool*>(new ComponentPool<T>());
                 return true;
             }
 
@@ -91,7 +92,7 @@ namespace ECS {
 
         protected:
         private:
-            std::vector<IComponentPool*> m_pool_list;
+            IComponentPool *m_pool_list[UINT16_MAX]{nullptr};
     };
 }
 
