@@ -10,18 +10,18 @@
     #include <type_traits>
     #include <typeindex>
     #include <cstdint>
-
-namespace ECS {
-    class ISystem;
-    class ECS;
-
+    
+    namespace ECS {
+        class ISystem;
+        class ECS;
+        
     // Concept for accepting system classes
     template<typename T>
     concept SystemClass = std::is_base_of_v<ISystem, T> && std::is_constructible_v<T>;
 
     // Concept for accepting components
     template<typename T>
-    concept ComponentType = std::is_constructible_v<T>;
+    concept ComponentType = std::is_default_constructible_v<T>;
 
     // Alias for uint32_t, used to represent, locate and perform actions on entities
     using EntityID = uint32_t;
