@@ -60,7 +60,7 @@ namespace ECS {
              * @brief Registers a new component type to the registry
              * 
              * @tparam T The type to register
-             * @return true If the component has been registered succesfully
+             * @return true If the component has been registered successfully
              * @return false If the component was already registered
              */
             template <ComponentType T>

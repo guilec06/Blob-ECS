@@ -160,7 +160,7 @@ namespace ECS {
              */
             const std::vector<EntityID> &getActiveEntities() {
                 if (m_cache_dirty) {
-                    m_cached_entities = m_data.dense_entities;
+                    m_cached_entities = m_data.dense_components;
                     std::sort(m_cached_entities.begin(), m_cached_entities.end());
                     m_cache_dirty = false;
                 }
