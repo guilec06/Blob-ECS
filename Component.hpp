@@ -35,7 +35,7 @@ namespace ECS {
     };
 
     /**
-     * @brief A cell that stores an entity ID with it's attached component
+     * @brief A cell that stores an entity ID with its attached component
      * 
      * @tparam T The component type
      */
