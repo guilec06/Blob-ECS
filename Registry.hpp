@@ -16,16 +16,6 @@
     #define REGISTRY_HPP_
 
 namespace ECS {
-    class ComponentTypeId {
-        private:
-            inline static std::atomic<uint16_t> counter = 0;
-        public:
-            template<typename T>
-            static uint16_t get() {
-                static uint16_t id = counter++;
-                return id;
-            }
-    };
 
     class Registry {
         public:

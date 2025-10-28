@@ -10,10 +10,11 @@
     #include <type_traits>
     #include <typeindex>
     #include <cstdint>
-    
-    namespace ECS {
-        class ISystem;
-        class ECS;
+    #include <atomic>
+
+namespace ECS {
+    class ISystem;
+    class ECS;
         
     // Concept for accepting system classes
     template<typename T>
@@ -26,8 +27,8 @@
     // Alias for uint32_t, used to represent, locate and perform actions on entities
     using EntityID = uint32_t;
 
-    // Alias for uint32_t, used to represent a System within the ECS
-    using SystemID = uint32_t;
+    // Alias for uint16_t, used to represent a System within the ECS
+    using SystemID = uint16_t;
 
     // Entity groups, modify this enum to add new groups to the system
     enum EntityGroup {
@@ -52,4 +53,5 @@
         int skipped_ticks;
     };
 }
+
 #endif /* !INCLUDES_HPP_ */

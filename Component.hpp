@@ -14,6 +14,17 @@
 
 namespace ECS {
 
+    class ComponentTypeId {
+        private:
+            inline static std::atomic<uint16_t> runtime_counter = 0;
+        public:
+            template<typename T>
+            static uint16_t get() {
+                static const uint16_t id = runtime_counter.fetch_add(1, std::memory_order_relaxed);
+                return id;
+            }
+    };
+
     template<typename T>
     struct DenseComponent {
         T component;
@@ -23,7 +34,7 @@ namespace ECS {
     template<ComponentType T>
     struct SparseSetData {
         std::vector<DenseComponent<T>> dense_components;           // Packed components
-        std::vector<uint32_t> sparse;                           // EntityID → dense index mapping
+        std::vector<uint32_t> sparse;                           // EntityID -> dense index mapping
     };
     constexpr uint32_t NULL_INDEX = std::numeric_limits<uint32_t>::max();
 
@@ -123,5 +134,7 @@ namespace ECS {
             }
     };
 }
+
+#define ECS_REGISTER_COMPONENT(T) ECS::PreCompilationTypeId::get<T>()
 
 #endif /* !COMPONENT_HPP_ */
