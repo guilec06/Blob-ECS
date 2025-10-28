@@ -56,6 +56,13 @@ namespace ECS {
                 return componentExists(type_id);
             }
 
+            /**
+             * @brief Registers a new component type to the registry
+             * 
+             * @tparam T The type to register
+             * @return true If the component has been registered succesfully
+             * @return false If the component was already registered
+             */
             template <ComponentType T>
             bool registerComponent() {
                 if (componentExists<T>())
@@ -66,6 +73,12 @@ namespace ECS {
                 return true;
             }
 
+            /**
+             * @brief Get the Pool object
+             * 
+             * @tparam T The component type the pool stores
+             * @return ComponentPool<T>& 
+             */
             template <ComponentType T>
             ComponentPool<T> &getPool() {
                 if (!componentExists<T>())
@@ -73,6 +86,11 @@ namespace ECS {
                 return *(static_cast<ComponentPool<T>*>(m_pool_list[ComponentTypeId::get<T>()]));
             }
 
+            /**
+             * @brief Disables an entity from being computed
+             * 
+             * @param e Entity ID
+             */
             void disableEntity(EntityID e) {
                 for (const auto &it : m_pool_list) {
                     if (it != nullptr)
