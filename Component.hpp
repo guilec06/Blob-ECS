@@ -14,25 +14,63 @@
 
 namespace ECS {
 
+    /**
+     * @brief Class for generating and getting custom type IDs
+     */
+    class ComponentTypeId {
+        private:
+            inline static std::atomic<uint16_t> runtime_counter = 0;
+        public:
+            /**
+             * @brief Returns the ID attached to this specific type, generates an ID if this is the first call
+             * 
+             * @tparam T The type to get an ID from
+             * @return uint16_t The corresponding ID
+             */
+            template<typename T>
+            static uint16_t get() {
+                static const uint16_t id = runtime_counter.fetch_add(1, std::memory_order_relaxed);
+                return id;
+            }
+    };
+
+    /**
+     * @brief A cell that stores an entity ID with its attached component
+     * 
+     * @tparam T The component type
+     */
     template<typename T>
     struct DenseComponent {
         T component;
         EntityID entity;
     };
 
+    /**
+     * @brief Structure for a custom sparse set
+     * 
+     * @tparam T The type of the set
+     */
     template<ComponentType T>
     struct SparseSetData {
         std::vector<DenseComponent<T>> dense_components;           // Packed components
-        std::vector<uint32_t> sparse;                           // EntityID → dense index mapping
+        std::vector<uint32_t> sparse;                           // EntityID -> dense index mapping
     };
     constexpr uint32_t NULL_INDEX = std::numeric_limits<uint32_t>::max();
 
+    /**
+     * @brief ComponentPool interface, this should be casted to a <compType>ComponentPool to be used
+     */
     class IComponentPool {
         public:
             virtual ~IComponentPool() = default;
             virtual void disableEntity(EntityID) = 0;
     };
 
+    /**
+     * @brief ComponentPool that stores components of the defined type
+     * 
+     * @tparam T The type of component the pool is storing
+     */
     template <ComponentType T>
     class ComponentPool : public IComponentPool {
         public:
@@ -44,10 +82,23 @@ namespace ECS {
             ~ComponentPool() {
             }
 
+            /**
+             * @brief Checks if a specific entity has the component
+             * 
+             * @param e The entity ID
+             * @return true The entity has the component
+             * @return false The entity does not have the component
+             */
             bool hasComponent(EntityID e) {
                 return e < m_data.sparse.size() && m_data.sparse[e] != NULL_INDEX;
             }
 
+            /**
+             * @brief Adds the component to the specified entity
+             * 
+             * @param e The entity ID
+             * @return T& Reference to the newly created component
+             */
             T &addComponent(EntityID e) {
                 if (hasComponent(e))
                     throw ERROR::ComponentAlreadyAttached(e, std::string(typeid(T).name()));
@@ -66,6 +117,11 @@ namespace ECS {
                 return m_data.dense_components.back().component;
             }
 
+            /**
+             * @brief Removes the component attached to the specified entity
+             * 
+             * @param e The entity ID
+             */
             void removeComponent(EntityID e) {
                 if (!hasComponent(e)) return;
 
@@ -86,24 +142,45 @@ namespace ECS {
                 m_cache_dirty = true;
             }
 
+            /**
+             * @brief Get the Component object attached to the specified entity
+             * 
+             * @param e The entity ID
+             * @return T& Reference to the component
+             */
             T &getComponent(EntityID e) {
                 
                 return m_data.dense_components[m_data.sparse[e]].component;
             }
 
+            /**
+             * @brief Get a vector containing every entity's id which have this component attached
+             * 
+             * @return const std::vector<EntityID>& Vector of entities
+             */
             const std::vector<EntityID> &getActiveEntities() {
                 if (m_cache_dirty) {
-                    m_cached_entities = m_data.dense_entities;
+                    m_cached_entities = m_data.dense_components;
                     std::sort(m_cached_entities.begin(), m_cached_entities.end());
                     m_cache_dirty = false;
                 }
                 return m_cached_entities;
             }
 
+            /**
+             * @brief Alias for removeComponent(e)
+             * 
+             * @param e The entity ID
+             */
             void disableEntity(EntityID e) override {
                 removeComponent(e);
             }
 
+            /**
+             * @brief Get the Pool object
+             * 
+             * @return const std::vector<EntityID>& 
+             */
             const std::vector<EntityID>& getPool() {
                 return getActiveEntities();
             }

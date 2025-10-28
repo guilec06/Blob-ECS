@@ -12,6 +12,9 @@
 
 namespace ECS {
 
+    /**
+     * @brief System Interface, every system should inherit from this class
+     */
     class ISystem {
         public:
             virtual ~ISystem() = default;

@@ -38,18 +38,9 @@ namespace ECS {
                 for (std::size_t i = 0; i < 32; i++) {
                     m_entities.push_back(Entity());
                 }
-                m_comp_pools_list.reserve(UINT16_MAX);
             }
 
-            ~ECS()
-            {
-                for (const auto &it : m_comp_pools)
-                    delete it.second;
-                for (const auto &it : m_comp_pools_list)
-                    delete it;
-                for (const auto &it : m_systems)
-                    delete it.sys;
-            }
+            ~ECS() {}
 
             /**
              * @brief Returns the amount of currently active entities
@@ -129,10 +120,7 @@ namespace ECS {
                 m_entities[e].isActive = false;
                 m_available_ids.push(e);
                 m_active_entities--;
-                for (auto &it : m_comp_pools)
-                    it.second->disableEntity(e);
-                for (auto &it : m_comp_pools_list)
-                    it->disableEntity(e);
+                registry.disableEntity(e);
             }
 
             /**
@@ -167,11 +155,11 @@ namespace ECS {
                 
                 std::vector<std::vector<EntityID>> component_lists;
                 
-                ((component_lists.push_back(componentExists<Components>() ? 
-                    // static_cast<ComponentPool<Components>*>(m_comp_pools[std::type_index(typeid(Components))])->getActiveEntities()
-                    static_cast<ComponentPool<Components>*>(m_comp_pools_list[ComponentTypeId::get<Components>()])->getActiveEntities()
-                    : 
-                    std::vector<EntityID>{})), ...);
+                (component_lists.push_back(
+                    componentExists<Components>()
+                    ? registry.getPool<Components>().getActiveEntities()
+                    : std::vector<EntityID>{}
+                ), ...);
 
                 if (component_lists.empty()) {
                     return {};
@@ -222,11 +210,10 @@ namespace ECS {
                     }
                 };
                 
-                ((componentExists<Components>() ? 
-                    // addEntities(static_cast<ComponentPool<Components>*>(m_comp_pools[std::type_index(typeid(Components))])->getActiveEntities())
-                    addEntities(static_cast<ComponentPool<Components>*>(m_comp_pools_list[ComponentTypeId::get<Components>()])->getActiveEntities())
-                    : 
-                    void()), ...);
+                ((componentExists<Components>()
+                    ? addEntities(registry.getPool<Components>().getActiveEntities())
+                    : void()
+                ), ...);
                 
                 std::sort(result.begin(), result.end());
                 
@@ -239,17 +226,7 @@ namespace ECS {
              * @tparam T The type of the component to register
              */
             template<ComponentType T>
-            void registerComponent()
-            {
-                // std::type_index comp_index = std::type_index(typeid(T));
-                uint16_t comp_index = ComponentTypeId::get<T>();
-
-                // if (m_comp_pools.find(comp_index) != m_comp_pools.end())
-                if (comp_index < m_comp_pools_list.size() && m_comp_pools_list[comp_index] != nullptr)
-                    return;
-                // m_comp_pools.insert_or_assign(comp_index, new ComponentPool<T>());
-                m_comp_pools_list.push_back(new ComponentPool<T>());
-            }
+            void registerComponent() { registry.registerComponent<T>(); }
 
             /**
              * @brief Checks if the component type is registered
@@ -259,12 +236,7 @@ namespace ECS {
              * @return false if it is not.
              */
             template<ComponentType T>
-            bool componentExists()
-            {
-                // return m_comp_pools.find(std::type_index(typeid(T))) != m_comp_pools.end();
-                uint16_t type_id = ComponentTypeId::get<T>();
-                return type_id < m_comp_pools_list.size() && m_comp_pools_list[type_id] != nullptr;
-            }
+            bool componentExists() { return registry.componentExists<T>(); }
 
             /**
              * @brief Checks if an enity has a component attached to it
@@ -275,13 +247,7 @@ namespace ECS {
              * @return false Either if the entity doesn't exists or if the component isn't attached to it
              */
             template<ComponentType T>
-            bool entityHasComponent(EntityID e)
-            {
-                if (!componentExists<T>())
-                    throw ERROR::UnregisteredComponent(std::string(typeid(T).name()));
-                // return static_cast<ComponentPool<T>*>(m_comp_pools[std::type_index(typeid(T))])->hasComponent(e);
-                return static_cast<ComponentPool<T>*>(m_comp_pools_list[ComponentTypeId::get<T>()])->hasComponent(e);
-            }
+            bool entityHasComponent(EntityID e) { return registry.getPool<T>().hasComponent(e); }
 
             /**
              * @brief Add a new component to the specified entity
@@ -293,16 +259,7 @@ namespace ECS {
              * @throw ERROR::ComponentAlreadyAttached => if the component is ALREADY attached to the entity
              */
             template<ComponentType T>
-            T &entityAddComponent(EntityID e)
-            {
-                // std::type_index comp_index = std::type_index(typeid(T));
-                uint16_t comp_index = ComponentTypeId::get<T>();
-
-                if (entityHasComponent<T>(e))
-                    throw ERROR::ComponentAlreadyAttached(e,std::string(typeid(T).name()));
-                // return static_cast<ComponentPool<T>*>(m_comp_pools[comp_index])->addComponent(e);
-                return static_cast<ComponentPool<T>*>(m_comp_pools_list[comp_index])->addComponent(e);
-            }
+            T &entityAddComponent(EntityID e) { return registry.getPool<T>().addComponent(e); }
 
             /**
              * @brief Gets the attached specified component to the specified entity
@@ -314,16 +271,7 @@ namespace ECS {
              * @throw ERROR::ComponentNotAttached => if the component is NOT attached to the entity
              */
             template<ComponentType T>
-            T &entityGetComponent(EntityID e)
-            {
-                // std::type_index comp_index = std::type_index(typeid(T));
-                uint16_t comp_index = ComponentTypeId::get<T>();
-
-                if (!entityHasComponent<T>(e))
-                    throw ERROR::ComponentNotAttached(e, std::string(typeid(T).name()));
-                // return static_cast<ComponentPool<T>*>(m_comp_pools[comp_index])->getComponent(e);
-                return static_cast<ComponentPool<T>*>(m_comp_pools_list[comp_index])->getComponent(e);
-            }
+            T &entityGetComponent(EntityID e) { return registry.getPool<T>().getComponent(e); }
 
             /**
              * @brief Removes the attached component from the entity
@@ -332,16 +280,7 @@ namespace ECS {
              * @param e The entity ID
              */
             template<ComponentType T>
-            void entityRemoveComponent(EntityID e)
-            {
-                // std::type_index comp_index = std::type_index(typeid(T));
-                uint16_t comp_index = ComponentTypeId::get<T>();
-
-                if (!entityHasComponent<T>(e))
-                    throw ERROR::ComponentNotAttached(e, std::string(typeid(T).name()));
-                // static_cast<ComponentPool<T>*>(m_comp_pools[comp_index])->removeComponent(e);
-                static_cast<ComponentPool<T>*>(m_comp_pools_list[ComponentTypeId::get<T>()])->removeComponent(e);
-            }
+            void entityRemoveComponent(EntityID e) { registry.getPool<T>().removeComponent(e); }
 
             /**
              * @brief Get the Pool object
@@ -351,13 +290,7 @@ namespace ECS {
              * @throw ERROR::UnregisteredComponent => if the component isn't registered
              */
             template<ComponentType T>
-            ComponentPool<T> &getPool()
-            {
-                if (!componentExists<T>())
-                    throw ERROR::UnregisteredComponent(typeid(T).name());
-                // return *(static_cast<ComponentPool<T>*>(m_comp_pools[std::type_index(typeid(T))]));
-                return *(static_cast<ComponentPool<T>*>(m_comp_pools_list[ComponentTypeId::get<T>()]));
-            }
+            ComponentPool<T> &getPool() { return registry.getPool<T>(); }
 
             /**
              * @brief Adds a new system to the ECS
@@ -425,14 +358,13 @@ namespace ECS {
                 }
             }
 
+            Registry registry;
         private:
             EntityID m_id_counter = 0;
             std::queue<EntityID> m_available_ids;
             std::size_t m_active_entities = 0;
             std::vector<Entity> m_entities;
-            std::unordered_map<std::type_index, IComponentPool*> m_comp_pools;
             std::vector<SystemData> m_systems;
-            std::vector<IComponentPool*> m_comp_pools_list;
     };
 }
 
