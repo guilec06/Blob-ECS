@@ -247,7 +247,7 @@ namespace ECS {
              * @return false Either if the entity doesn't exists or if the component isn't attached to it
              */
             template<ComponentType T>
-            bool entityHasComponent(EntityID e) { return registry.getPool<T>().hadComponent(e); }
+            bool entityHasComponent(EntityID e) { return registry.getPool<T>().hasComponent(e); }
 
             /**
              * @brief Add a new component to the specified entity
