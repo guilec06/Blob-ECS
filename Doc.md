@@ -1,6 +1,8 @@
 # Entity Component System documentation
 Made by Guillaume LECOCQ
 
+**Note:** *This documentation is partially outdated, for up-to-date documentation please refer to the in-code comments and docs*
+
 ## Table of Contents
 - [Structure](#structure)
 - [The ECS](#the-ecs)
@@ -17,8 +19,8 @@ Other classes such as Component pools and Systems interface are not to be manipu
 Here is a list of types, structures and classes that the user can freely manipulate:
 ```cpp
 // User usable types and structs
-std::size_t EntityID; // This is how entities are represented
-std::size_t SystemID; // Systems are represented the same way
+std::uint16_t EntityID; // This is how entities are represented
+std::uint16_t SystemID; // Systems are represented the same way
 
 // Concept defining Systems classes, they must derive from ISystem and have a default constructor (T())
 template<typename T>
@@ -26,11 +28,12 @@ concept SystemClass = std::is_base_of_v<ISystem, T> && std::is_constructible_v<T
 
 // Concept defining a component, components can be anything as long as they can be constructed (typedefs, struct, classes...)
 template<typename T>
-concept Component = std::is_constructible_v<T>;
+concept ComponentType = std::is_default_constructible_v<T>;
 
 enum EntityGroup; // Entities can be grouped together, allowing easier access to a large quantity of entities
 
 class ECS; // This is the core class of the ECS, this is what the user is going to use
+class ISystem; // System Interface, used to create systems
 ```
 Beside that, there are also abstracted types and classes that the ECS uses in the backgroud, here's a brief summary of what they are:
 ```cpp
@@ -38,14 +41,17 @@ Beside that, there are also abstracted types and classes that the ECS uses in th
 struct Entity; // This is how entities are represented within the ECS
 struct SystemData; // This is how systems are stored within the ECS
 
-class ISystem; // System Interface
 class IComponentPool; // ComponentPool interface
+
 template<Component T>
 class ComponentPool : public IComponentPool; // Base for any component storage
 
 ```
 
 ## The ECS
+
+**TABLE IS OUTDATED !**
+*For detailed method implementation and documentation please refer to the in-code documentation*
 
 The ECS class has the following methods:
 
