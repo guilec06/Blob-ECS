@@ -109,6 +109,23 @@ namespace ECS {
             }
 
             /**
+             * @brief Creates an entity and sets its group
+             * 
+             * Alias for:
+             * entitySetGroup(entityCreate(), group);
+             * 
+             * @param group The entity group 
+             * @return EntityID The created entity's ID
+             */
+            EntityID entityCreate(EntityGroup group)
+            {
+                EntityID e = this->entityCreate();
+                
+                this->entitySetGroup(e, group);
+                return e;
+            }
+
+            /**
              * @brief Set the group of an entity
              * 
              * @param id The ID of the entity
