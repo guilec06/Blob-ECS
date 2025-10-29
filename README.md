@@ -184,7 +184,7 @@ int main() {
     
     // Game loop
     while (running) {
-        ecs.updateSystems(); // Updates all systems based on tickrate
+        ecs.Update(); // Updates all systems based on tickrate
     }
     
     return 0;
