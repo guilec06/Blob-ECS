@@ -329,6 +329,21 @@ version 2.1 of the License, or (at your option) any later version.
 
 See [LICENSE](LICENSE) for full license text.
 
+## What role did AI occupy in this project?
+
+Blob-ECS is designed and written by its author. The architecture, the API and the library code (every `.hpp` file) are human work.
+
+AI (Claude, through Claude Code) is used as an assistant, never as a developer. Its role is limited to:
+
+- **Brainstorming**: talking through design options before deciding on one
+- **Reviewer**: reading diffs and pointing out bugs or risky spots
+- **Advisor**: giving opinions on trade-offs, conventions and project organisation
+- **Small bug fixes**: occasional minor fixes, such as an accidental rename
+
+Beyond that, AI also helped draft and update the written documentation (`README.md`, `Doc.md`) and the benchmark program on the `benchmarks` branch, both of which are checked against the code.
+
+AI is not listed as a contributor in the git history.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit pull requests or open issues.
