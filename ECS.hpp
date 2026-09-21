@@ -18,386 +18,453 @@
  *  License along with this library; if not, write to the Free Software
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301
  *  USA
-*/
+ */
 
 #ifndef ECS_HPP_
-    #define ECS_HPP_
+#define ECS_HPP_
 
-#include <cstddef>
-#include <vector>
-#include <queue>
-#include <unordered_map>
-#include <string>
-#include <exception>
-#include <system_error>
-#include <algorithm>
-#include <unistd.h>
-
-#include "Registry.hpp"
-#include "Errors.hpp"
-#include "Includes.hpp"
 #include "Component.hpp"
+#include "Includes.hpp"
+#include "Registry.hpp"
 #include "System.hpp"
 
-namespace ECS {
-    class ECS {
-        public:
-            /**
-             * @brief Construct a new ECS object
-             * 
-             * @param max_entities OPTIONAL specify a maximum entity count, 0 = infinite
-             * @param use_as_power OPTIONAL specify if the max_entities is to be interpreted as a power of 2 or as a litteral limit (false by default)
-             */
-            ECS(std::size_t max_entities = 0, bool use_as_power = false)
-            {
-                for (std::size_t i = 0; i < 32; i++) {
-                    m_entities.push_back(Entity());
+#include <algorithm>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <type_traits>
+#include <typeindex>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+#include <bitset>
+
+namespace ECS
+{
+class ECS
+{
+  public:
+    /**
+     * @brief Construct a new ECS object
+     *
+     * @param max_entities OPTIONAL specify a maximum entity count, 0 = infinite
+     * @param use_as_power OPTIONAL specify if the max_entities is to be interpreted as a power of 2
+     * or as a litteral limit (false by default)
+     */
+    ECS([[maybe_unused]] std::size_t max_entities = 0, [[maybe_unused]] bool use_as_power = false)
+    {
+    }
+
+    ~ECS()
+    {
+    }
+
+    /**
+     * @brief Returns the amount of currently active entities
+     *
+     * @return std::size_t Currently active entities
+     */
+    std::size_t currentEntityCount()
+    {
+        return m_active_entities;
+    }
+
+    /**
+     * @brief Checks if the specified entity's ID match an active entity
+     *
+     * @param e EntityID
+     * @return true if it exists
+     * @return false if it doesn't
+     */
+    bool entityIsActive(EntityID e)
+    {
+        return e < m_id_counter && m_entity_meta.alive[e];
+    }
+
+    /**
+     * @brief Create a new entity and returns its ID
+     *
+     * @return EntityID
+     */
+    EntityID entityCreate()
+    {
+        EntityID newId;
+
+        if (m_available_ids.size() == 0)
+        {
+            newId = m_id_counter++;
+            m_entity_meta.generation.push_back(0);
+            m_entity_meta.component_mask.push_back(EntityComponentMask());
+            m_entity_meta.alive.push_back(true);
+        }
+        else
+        {
+            newId = m_available_ids.back();
+            m_available_ids.pop_back();
+
+            m_entity_meta.generation[newId]++;
+            m_entity_meta.component_mask[newId].reset();
+            m_entity_meta.alive[newId] = true;
+        }
+        m_active_entities++;
+        return newId;
+    }
+
+    /**
+     * @brief Delete an entity corresponding to an ID
+     *
+     * @param e EntityID
+     */
+    void entityDelete(EntityID e)
+    {
+        if (!entityIsActive(e))
+            return;
+        m_available_ids.push_back(e);
+        m_active_entities--;
+        registry.disableEntity(e, entityGetMetaComponentMask(e));
+        m_entity_meta.alive[e] = false;
+    }
+
+    std::uint16_t entityGetMetaGeneration(EntityID e)
+    {
+        return m_entity_meta.generation[e];
+    }
+
+    EntityComponentMask &entityGetMetaComponentMask(EntityID e)
+    {
+        return m_entity_meta.component_mask[e];
+    }
+
+    /**
+     * @brief Returns a vector containing the IDs of entities that have ALL specified components
+     *
+     * @tparam Components The component types to check for (variadic template)
+     * @return std::vector<EntityID> The list of entities that have all specified components
+     */
+    template <typename... Components> void getEntitiesByComponentsAllOf(std::vector<EntityID> &buff)
+    {
+        buff.clear();
+        if constexpr (sizeof...(Components) == 0)
+            return;
+        
+#ifdef BLOB_DEBUG
+        if (!(componentExists<Components>() && ...))
+            return;
+#endif
+
+        EntityComponentMask query;
+        (query.set(registry.bitOf<Components>()), ...);
+
+        IComponentPool *smallest = nullptr;
+        auto consider = [&](IComponentPool *pool) {
+            if (!smallest || pool->size() < smallest->size())
+                smallest = pool;
+        };
+
+        (consider(&registry.getPool<Components>()), ...);
+
+        if constexpr (sizeof...(Components) == 1) {
+            buff = smallest->getActiveEntities();
+            return;
+        }
+
+        for (EntityID e : smallest->getActiveEntities()) {
+            if ((m_entity_meta.component_mask[e] & query) == query)
+                buff.push_back(e);
+        }
+    }
+
+    /**
+     * @brief Returns a vector containing the IDs of entities that have AT LEAST ONE of the
+     * specified components
+     *
+     * @tparam Components The component types to check for (variadic template)
+     * @return std::vector<EntityID> The list of entities that have at least one of the specified
+     * components
+     */
+    template <typename... Components> void getEntitiesByComponentsAnyOf(std::vector<EntityID> &buff)
+    {
+        buff.clear();
+
+        if constexpr (sizeof...(Components) == 0)
+            return;
+        
+        if (m_any_seen.size() < m_id_counter)
+            m_any_seen.resize(m_id_counter, false);
+
+        auto addEntities = [&](IComponentPool *pool) {
+            for (EntityID e : pool->getActiveEntities()) {
+                if (!m_any_seen[e]) {
+                    m_any_seen[e] = true;
+                    buff.push_back(e);
                 }
             }
+        };
+        ((componentExists<Components>() ? addEntities(&registry.getPool<Components>()) : void()), ...);
 
-            ~ECS() {}
+        for (EntityID e : buff)
+            m_any_seen[e] = false;
+    }
 
-            /**
-             * @brief Returns the amount of currently active entities
-             * 
-             * @return std::size_t Currently active entities
-             */
-            std::size_t currentEntityCount()
-            {
-                return m_active_entities;
-            }
+    void entityGetAllComponents(std::unordered_map<uint16_t, void *> &buff, EntityID e)
+    {
+        IComponentPool **list = registry.getRawPools();
+        const std::vector<uint16_t> ids = registry.getRegisteredIds();
 
-            /**
-             * @brief Checks if the specified entity's ID match an active entity
-             * 
-             * @param e EntityID
-             * @return true if it exists
-             * @return false if it doesn't
-             */
-            bool entityIsActive(EntityID e)
-            {
-                if (m_entities.size() <= e)
-                    return false;
-                return m_entities[e].isActive;
-            }
+        for (auto id : ids) {
+            IComponentPool *pool = list[id];
+            if (pool->poolIsTag())
+                continue;
+            void *component = pool->getVoid(e);
+            if (component)
+                buff[id] = component;
+        }
+    }
 
-            /**
-             * @brief Create a new entity and returns its ID
-             * 
-             * @return EntityID 
-             */
-            EntityID entityCreate()
-            {
-                EntityID newId;
+    /**
+     * @brief Registers a new component in the environment, the component can then be used withing
+     * the environment
+     *
+     * @tparam T The type of the component to register
+     */
+    template <typename T> void registerComponent()
+    {
+        registry.registerComponent<T>();
+    }
 
-                if (m_available_ids.size() == 0) {
-                    newId = m_id_counter++;
-                } else {
-                    newId = m_available_ids.front();
-                    m_available_ids.pop();
-                }
-                if (m_active_entities >= m_entities.size()) {
-                    std::size_t current_capacity = m_entities.size();
-                    for (std::size_t i = 0; i < current_capacity; i++) {
-                        m_entities.push_back(Entity());
-                    }
-                }
-                m_entities[newId].isActive = true;
-                m_entities[newId].group = NONE;
-                m_active_entities++;
-                return newId;
-            }
+    /**
+     * @brief Checks if the component type is registered
+     *
+     * @tparam T The Component type to check for
+     * @return true If it is registered.
+     * @return false if it is not.
+     */
+    template <typename T> bool componentExists()
+    {
+        return registry.componentExists<T>();
+    }
 
-            /**
-             * @brief Creates an entity and sets its group
-             * 
-             * Alias for:
-             * entitySetGroup(entityCreate(), group);
-             * 
-             * @param group The entity group 
-             * @return EntityID The created entity's ID
-             */
-            EntityID entityCreate(EntityGroup group)
-            {
-                EntityID e = this->entityCreate();
-                
-                this->entitySetGroup(e, group);
-                return e;
-            }
+    /**
+     * @brief Checks if an enity has a component attached to it
+     *
+     * @tparam T The component type to check for
+     * @param e EntityID - The ID of the entity
+     * @return true If the entity exists AND has the component attached to IT
+     * @return false Either if the entity doesn't exists or if the component isn't attached to it
+     */
+    template <typename T> bool entityHasComponent(EntityID e)
+    {
+        return registry.getPool<T>().hasComponent(e);
+    }
 
-            /**
-             * @brief Set the group of an entity
-             * 
-             * @param id The ID of the entity
-             * @param group The new group the entity should belong to
-             */
-            void entitySetGroup(EntityID id, EntityGroup group)
-            {
-                if (m_entities.size() <= id)
-                    return;
-                m_entities[id].group = group;
-            }
-            
-            /**
-             * @brief Delete an entity corresponding to an ID
-             * 
-             * @param e EntityID
-             */
-            void entityDelete(EntityID e)
-            {
-                if (m_entities.size() <= e)
-                    return;
-                if (!entityIsActive(e))
-                    return;
-                m_entities[e].isActive = false;
-                m_available_ids.push(e);
-                m_active_entities--;
-                registry.disableEntity(e);
-            }
+    /**
+     * @brief Add a new component to the specified entity
+     *
+     * @tparam T The component type to add to the entity
+     * @param e EntityID - The entity to add the component to
+     * @return T& Reference to the newly created Component
+     * @throw ERROR::UnregisteredComponent => if the component isn't registered
+     * @throw ERROR::ComponentAlreadyAttached => if the component is ALREADY attached to the entity
+     */
+    template <typename T> T &entityAddComponent(EntityID e)
+    {
+        m_entity_meta.component_mask[e].set(registry.bitOf<T>(), true);
+        return registry.getPool<T>().addComponent(e);
+    }
 
-            /**
-             * @brief Returns a vector containing the IDs of entities belonging to group 'group'
-             * 
-             * @param group The group to target
-             * @return std::vector<EntityID> The list of entities
-             */
-            std::vector<EntityID> getEntityGroup(EntityGroup group)
-            {
-                std::vector<EntityID> grp;
+    template <typename T, typename... Args>
+        requires std::constructible_from<T, Args...>
+    T &entityAddComponent(EntityID e, Args&&... args)
+    {
+        m_entity_meta.component_mask[e].set(registry.bitOf<T>(), true);
+        return registry.getPool<T>().addComponent(e, std::forward<Args>(args)...);
+    }
 
-                for (std::size_t i = 0; i < m_entities.size(); i++) {
-                    if (m_entities[i].isActive && m_entities[i].group == group)
-                        grp.push_back(i);
-                }
-                return grp;
-            }
+    template<typename T>
+        requires std::is_empty_v<T>
+    void entityAddComponent(EntityID e)
+    {
+        m_entity_meta.component_mask[e].set(registry.bitOf<T>(), true);
+        registry.getPool<T>().addComponent(e);
+    }
 
-            /**
-             * @brief Returns a vector containing the IDs of entities that have ALL specified components
-             * 
-             * @tparam Components The component types to check for (variadic template)
-             * @return std::vector<EntityID> The list of entities that have all specified components
-             */
-            template<ComponentType... Components>
-            std::vector<EntityID> getEntitiesByComponentsAllOf()
-            {
-                if constexpr (sizeof...(Components) == 0) {
-                    return {};
-                }
-                
-                std::vector<std::vector<EntityID>> component_lists;
-                
-                (component_lists.push_back(
-                    componentExists<Components>()
-                    ? registry.getPool<Components>().getActiveEntities()
-                    : std::vector<EntityID>{}
-                ), ...);
+    /**
+     * @brief Gets the attached specified component to the specified entity
+     *
+     * @tparam T The component type to get
+     * @param e EntityID - The entity's ID
+     * @return T& Reference to the associated component
+     * @throw ERROR::UnregisteredComponent => if the component isn't registered
+     * @throw ERROR::ComponentNotAttached => if the component is NOT attached to the entity
+     */
+    template <typename T> requires (!std::is_empty_v<T>) T &entityGetComponent(EntityID e)
+    {
+        return registry.getPool<T>().getComponent(e);
+    }
 
-                if (component_lists.empty()) {
-                    return {};
-                }
-                
-                auto smallest_it = std::min_element(component_lists.begin(), component_lists.end(),
-                    [](const std::vector<EntityID>& a, const std::vector<EntityID>& b) {
-                        return a.size() < b.size();
-                    });
+    template <typename T> requires (!std::is_empty_v<T>) const T &entityGetComponent(EntityID e) const
+    {
+        return static_cast<const T&>(registry.getPool<T>().getComponent(e));
+    }
 
-                std::vector<EntityID> result = *smallest_it;
+    /**
+     * @brief Removes the attached component from the entity
+     *
+     * @tparam T The component type
+     * @param e The entity ID
+     */
+    template <typename T> void entityRemoveComponent(EntityID e)
+    {
+        m_entity_meta.component_mask[e].reset(registry.bitOf<T>());
+        registry.getPool<T>().removeComponent(e);
+    }
 
-                for (const auto& comp_list : component_lists) {
-                    if (&comp_list == &(*smallest_it)) continue;
-                    
-                    std::vector<EntityID> intersection;
-                    std::set_intersection(result.begin(), result.end(),
-                                        comp_list.begin(), comp_list.end(),
-                                        std::back_inserter(intersection));
-                    result = std::move(intersection);
-                    
-                    if (result.empty()) break;
-                }
+    template <typename T> requires std::is_empty_v<T> bool entityHasTag(EntityID e)
+    {
+        return entityHasComponent<T>(e);
+    }
 
-                return result;
-            }
+    template <typename T> requires std::is_empty_v<T> void entityAddTag(EntityID e)
+    {
+        entityAddComponent<T>(e);
+    }
 
-            /**
-             * @brief Returns a vector containing the IDs of entities that have AT LEAST ONE of the specified components
-             * 
-             * @tparam Components The component types to check for (variadic template)
-             * @return std::vector<EntityID> The list of entities that have at least one of the specified components
-             */
-            template<ComponentType... Components>
-            std::vector<EntityID> getEntitiesByComponentsAnyOf()
-            {
-                if constexpr (sizeof...(Components) == 0) {
-                    return {};
-                }
+    template <typename T> requires std::is_empty_v<T> void entityRemoveTag(EntityID e)
+    {
+        entityRemoveComponent<T>(e);
+    }
 
-                std::vector<EntityID> result;
-                
-                auto addEntities = [&result](const std::vector<EntityID>& entities) {
-                    for (EntityID id : entities) {
-                        if (std::find(result.begin(), result.end(), id) == result.end()) {
-                            result.push_back(id);
-                        }
-                    }
-                };
-                
-                ((componentExists<Components>()
-                    ? addEntities(registry.getPool<Components>().getActiveEntities())
-                    : void()
-                ), ...);
-                
-                std::sort(result.begin(), result.end());
-                
-                return result;
-            }
+    template<typename... Types> requires (std::is_empty_v<Types> && ...) void getEntitiesByTagsAllOf(std::vector<EntityID> &buff)
+    {
+        getEntitiesByComponentsAllOf<Types...>(buff);
+    }
 
-            /**
-             * @brief Registers a new component in the environment, the component can then be used withing the environment
-             * 
-             * @tparam T The type of the component to register
-             */
-            template<ComponentType T>
-            void registerComponent() { registry.registerComponent<T>(); }
+    template<typename... Types> requires (std::is_empty_v<Types> && ...) void getEntitiesByTagsAnyOf(std::vector<EntityID> &buff)
+    {
+        getEntitiesByComponentsAnyOf<Types...>(buff);
+    }
 
-            /**
-             * @brief Checks if the component type is registered
-             * 
-             * @tparam T The Component type to check for
-             * @return true If it is registered.
-             * @return false if it is not.
-             */
-            template<ComponentType T>
-            bool componentExists() { return registry.componentExists<T>(); }
+    /**
+     * @brief Get the Pool object
+     *
+     * @tparam T The component type of the Pool
+     * @return ComponentPool<T>* The pointer to the pool
+     * @throw ERROR::UnregisteredComponent => if the component isn't registered
+     */
+    template <typename T> ComponentPool<T> &getPool()
+    {
+        return registry.getPool<T>();
+    }
 
-            /**
-             * @brief Checks if an enity has a component attached to it
-             * 
-             * @tparam T The component type to check for
-             * @param e EntityID - The ID of the entity
-             * @return true If the entity exists AND has the component attached to IT
-             * @return false Either if the entity doesn't exists or if the component isn't attached to it
-             */
-            template<ComponentType T>
-            bool entityHasComponent(EntityID e) { return registry.getPool<T>().hasComponent(e); }
+    /**
+        * @brief Adds a new system to the ECS
+        * 
+        * @tparam T The system class
+        * @param tickrate The ticks (calls to Update()) the system should skip after ticked
+        * @return SystemID The new ID for the system
+        */
+    template<SystemClass T, typename... Args>
+        requires std::constructible_from<T, Args...>
+    T &addSystem(Args&&... args)
+    {
+        auto system = std::make_unique<T>(std::forward<Args>(args)...);
+        T *ptr = system.get();
 
-            /**
-             * @brief Add a new component to the specified entity
-             * 
-             * @tparam T The component type to add to the entity
-             * @param e EntityID - The entity to add the component to
-             * @return T& Reference to the newly created Component
-             * @throw ERROR::UnregisteredComponent => if the component isn't registered
-             * @throw ERROR::ComponentAlreadyAttached => if the component is ALREADY attached to the entity
-             */
-            template<ComponentType T>
-            T &entityAddComponent(EntityID e) { return registry.getPool<T>().addComponent(e); }
+        m_systems.insert_or_assign(std::type_index(typeid(T)), std::move(system));
+        m_active_systems.push_back({ptr, SYSTEM_PRIORITY_DEFAULT});
+        reorderSystems();
+        return *ptr;
+    }
 
-            /**
-             * @brief Gets the attached specified component to the specified entity
-             * 
-             * @tparam T The component type to get
-             * @param e EntityID - The entity's ID
-             * @return T& Reference to the associated component
-             * @throw ERROR::UnregisteredComponent => if the component isn't registered
-             * @throw ERROR::ComponentNotAttached => if the component is NOT attached to the entity
-             */
-            template<ComponentType T>
-            T &entityGetComponent(EntityID e) { return registry.getPool<T>().getComponent(e); }
+    /**
+     * @brief Toggles the system on or off, defining if it should tick when Update() is called
+     *
+     * @param id The id of the system to toggle
+     */
+    template<SystemClass T>
+    void toggleSystem()
+    {
+        ISystem *ptr = m_systems[std::type_index(typeid(T))].get();
 
-            /**
-             * @brief Removes the attached component from the entity
-             * 
-             * @tparam T The component type
-             * @param e The entity ID
-             */
-            template<ComponentType T>
-            void entityRemoveComponent(EntityID e) { registry.getPool<T>().removeComponent(e); }
+        const auto &it = std::find_if(m_active_systems.begin(), m_active_systems.end(), [ptr](SystemEntry &elem) {return elem.sys == ptr; });
 
-            /**
-             * @brief Get the Pool object
-             * 
-             * @tparam T The component type of the Pool
-             * @return ComponentPool<T>* The pointer to the pool
-             * @throw ERROR::UnregisteredComponent => if the component isn't registered
-             */
-            template<ComponentType T>
-            ComponentPool<T> &getPool() { return registry.getPool<T>(); }
+        if (it == m_active_systems.end())
+            m_active_systems.push_back({ptr, SYSTEM_PRIORITY_DEFAULT});
+        else
+            m_active_systems.erase(it);
+        reorderSystems();
+    }
 
-            /**
-             * @brief Adds a new system to the ECS
-             * 
-             * @tparam T The system class
-             * @param tickrate The ticks (calls to Update()) the system should skip after ticked
-             * @return SystemID The new ID for the system
-             */
-            template<SystemClass T>
-            SystemID addSystem(int tickrate = 0)
-            {
-                static SystemID id = 0;
-                SystemData data;
+    /**
+     * @brief Checks if the specified system is enabled
+     *
+     * @param sys The system's ID
+     * @return true Is the system is enabled,
+     * @return false if it is not
+     */
+    template<SystemClass T>
+    bool systemIsEnabled()
+    {
+        ISystem *ptr = m_systems[std::type_index(typeid(T))].get();
 
-                data.enabled = true;
-                data.sys = new T();
-                data.tickrate = tickrate;
-                data.skipped_ticks = 0;
-                m_systems.push_back(data);
-                return id++;
-            }
+        return std::find_if(m_active_systems.begin(), m_active_systems.end(), [ptr](SystemEntry &elem) {return elem.sys == ptr; }) != m_active_systems.end();
+    }
 
-            /**
-             * @brief Toggles the system on or off, defining if it should tick when Update() is called
-             * 
-             * @param id The id of the system to toggle
-             */
-            void toggleSystem(SystemID id)
-            {
-                if (id >= m_systems.size())
-                    return;
-                m_systems[id].enabled = !m_systems[id].enabled;
-            }
+    template<SystemClass T>
+    void systemSetPriority(SysPriority priority)
+    {
+        ISystem *ptr = m_systems[std::type_index(typeid(T))].get();
 
-            /**
-             * @brief Checks if the specified system is enabled
-             * 
-             * @param sys The system's ID
-             * @return true Is the system is enabled,
-             * @return false if it is not
-             */
-            bool systemIsEnabled(SystemID sys)
-            {
-                if (sys >= m_systems.size())
-                    return false;
-                return m_systems[sys].enabled;
-            }
+        const auto &it = std::find_if(m_active_systems.begin(), m_active_systems.end(), [ptr](SystemEntry &elem) {return elem.sys == ptr; });
+        if (it != m_active_systems.end())
+            it->priority = priority;
+        reorderSystems();
+    }
 
-            /**
-             * @brief Updates every active systems
-             * 
-             */
-            void Update(uint32_t msecs = 0)
-            {
-                for (SystemID i = 0; i < m_systems.size(); i++) {
-                    auto &it = m_systems.at(i);
-                    if (!it.enabled)
-                        continue;
-                    if (it.skipped_ticks >= it.tickrate) {
-                        it.sys->Update(*this, i, msecs);
-                        it.skipped_ticks = 0;
-                    } else {
-                        it.skipped_ticks++;
-                    }
-                }
-            }
+    template<SystemClass T>
+    T &getSystem()
+    {
+        ISystem *ptr = m_systems[std::type_index(typeid(T))].get();
 
-            Registry registry;
-        private:
-            EntityID m_id_counter = 0;
-            std::queue<EntityID> m_available_ids;
-            std::size_t m_active_entities = 0;
-            std::vector<Entity> m_entities;
-            std::vector<SystemData> m_systems;
-    };
-}
+        return *static_cast<T*>(ptr);
+    }
+
+    /**
+     * @brief Updates every active systems
+     *
+     */
+    void Update(uint32_t msecs = 0)
+    {
+        for (auto system : m_active_systems) {
+            system.sys->Update(*this, msecs);
+        }
+    }
+
+    Registry registry;
+
+  private:
+
+    void reorderSystems()
+    {
+        std::sort(
+            m_active_systems.begin(),
+            m_active_systems.end(),
+            [](SystemEntry &a, SystemEntry &b) { return a.priority < b.priority; }
+        );
+    }
+
+    EntityID m_id_counter = 0;
+    EntityMetadata m_entity_meta;
+
+    std::vector<EntityID> m_available_ids;
+    std::size_t m_active_entities = 0; // in theory: m_active_entities = m_id_counter - m_available_ids.size()
+    std::unordered_map<std::type_index, std::unique_ptr<ISystem>> m_systems;
+    std::vector<SystemEntry> m_active_systems;
+
+    std::vector<bool> m_any_seen;
+};
+} // namespace ECS
 
 #endif /* !ECS_HPP_ */

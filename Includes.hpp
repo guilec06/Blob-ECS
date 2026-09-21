@@ -18,58 +18,62 @@
  *  License along with this library; if not, write to the Free Software
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301
  *  USA
-*/
+ */
 
 #ifndef INCLUDES_HPP_
-    #define INCLUDES_HPP_
+#define INCLUDES_HPP_
 
-    #include <cstddef>
-    #include <concepts>
-    #include <type_traits>
-    #include <typeindex>
-    #include <cstdint>
-    #include <atomic>
+#include <bitset>
+#include <cstdint>
+#include <limits>
+#include <type_traits>
+#include <vector>
 
-namespace ECS {
-    class ISystem;
-    class ECS;
-        
-    // Concept for accepting system classes
-    template<typename T>
-    concept SystemClass = std::is_base_of_v<ISystem, T> && std::is_constructible_v<T>;
+namespace ECS
+{
+class ISystem;
+class ECS;
 
-    // Concept for accepting components
-    template<typename T>
-    concept ComponentType = std::is_default_constructible_v<T>;
+// Concept for accepting system classes
+template <typename T>
+concept SystemClass = std::is_base_of_v<ISystem, T>;
 
-    // Alias for uint32_t, used to represent, locate and perform actions on entities
-    using EntityID = uint32_t;
+// Concept for accepting components
+template <typename T>
+concept ComponentType = std::is_default_constructible_v<T>;
 
-    // Alias for uint16_t, used to represent a System within the ECS
-    using SystemID = uint16_t;
+template<typename T>
+concept TagType = std::is_empty_v<T>;
 
-    // Entity groups, modify this enum to add new groups to the system
-    enum EntityGroup {
-        NONE,
-        EXAMPLES
-    };
+// Alias for uint32_t, used to represent, locate and perform actions on entities
+using EntityID = uint32_t;
 
-    /*
-        This is how an entity is stored within the ECS
-        isActive represents if an entity exists or not
-        group represents a group which the entity belongs to
-    */
-    struct Entity {
-        bool isActive = false;
-        EntityGroup group = NONE;
-    };
+constexpr EntityID NULL_ENTITY = std::numeric_limits<EntityID>::max();
 
-    struct SystemData {
-        bool enabled;
-        ISystem *sys;
-        int tickrate;
-        int skipped_ticks;
-    };
-}
+// Alias for uint16_t, used to represent a System within the ECS
+using SystemID = uint16_t;
+
+using SysPriority = uint8_t;
+
+struct SystemEntry {
+    ISystem *sys;
+    SysPriority priority;
+};
+
+constexpr std::size_t COMPONENT_POOL_SPARSE_DEFAULT = 20;
+constexpr std::size_t COMPONENT_POOL_DENSE_DEFAULT = 10;
+constexpr SysPriority SYSTEM_PRIORITY_DEFAULT = 10;
+
+constexpr std::size_t COMPONENT_MASK_WIDTH = 128;
+using EntityComponentMask = std::bitset<COMPONENT_MASK_WIDTH>;
+
+struct EntityMetadata {
+    std::vector<uint16_t> generation;
+    std::vector<EntityComponentMask> component_mask;
+    std::vector<bool> alive;
+};
+
+} // namespace ECS
+
 
 #endif /* !INCLUDES_HPP_ */

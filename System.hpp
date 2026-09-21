@@ -18,25 +18,28 @@
  *  License along with this library; if not, write to the Free Software
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301
  *  USA
-*/
+ */
 
 #ifndef SYSTEM_HPP_
-    #define SYSTEM_HPP_
+#define SYSTEM_HPP_
 
-#include "ECS.hpp"
+#include "Includes.hpp"
 
-namespace ECS {
+namespace ECS
+{
 
-    /**
-     * @brief System Interface, every system should inherit from this class
-     */
-    class ISystem {
-        public:
-            virtual ~ISystem() = default;
+/**
+ * @brief System Interface, every system should inherit from this class
+ */
+class ISystem
+{
+  public:
+    virtual ~ISystem() = default;
 
-            virtual void Update(ECS &, SystemID thisID, uint32_t msecs) = 0;
-        protected:
-        private:
-    };
-}
+    virtual void Update(ECS &ecs, uint32_t msecs) = 0;
+
+  protected:
+  private:
+};
+} // namespace ECS
 #endif /* !SYSTEM_HPP_ */
