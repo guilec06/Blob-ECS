@@ -7,7 +7,7 @@ A high-performance, lightweight Entity Component System (ECS) library written in
 
 ## Overview
 
-Blob-ECS is a custom Entity Component System designed for maximum performance and type safety. An earlier version of the library reached **~51.3 million component operations per second** on modern hardware (see [Benchmarks](#benchmarks), these figures have not been re-measured on the current design).
+Blob-ECS is a custom Entity Component System designed for maximum performance and type safety. On an Apple M5 it reads about **1.27 billion components per second** and adds about **270 million components per second** (see [Benchmarks](#benchmarks) for the full, reproducible numbers).
 
 ### Key Features
 
@@ -18,7 +18,7 @@ Blob-ECS is a custom Entity Component System designed for maximum performance an
 - **Zero-Cost Abstractions**: Compile-time optimizations with C++20 concepts
 - **Signature Masks**: Each entity keeps a bit mask of its components, so multi-component queries start from the smallest pool and filter with a single mask test
 - **Struct-of-Arrays Pools**: Components and their owning entity IDs are stored in separate packed arrays
-- **Benchmark Results**: ~51M ops/s on Intel i7-12700H with the previous design (6.2x faster than hash-map based designs), not re-measured yet
+- **Benchmark Results**: ~1.27 billion sequential component reads/s and ~270M adds/s on an Apple M5, see [Benchmarks](#benchmarks)
 
 #### **Type Safety**
 - **Compile-Time Type Checking**: C++20 concepts and `requires` clauses restrict tag and data APIs to the right kinds of types
@@ -304,14 +304,36 @@ See [Doc.md](Doc.md) for a longer description of the API.
 
 ## Benchmarks
 
-Measured on Intel Core i7-12700H with an **earlier version** of the library. These numbers have not been re-measured since the pool, registry and query rework, treat them as indicative only. A benchmark setup lives on the `benchmarks` branch.
+Measured on an Apple M5 (10 cores, 24 GB, macOS), Apple clang 21, `-std=c++20 -O3 -DNDEBUG`. Each figure is the median of 15 runs (7 at 1M entities) after a warm-up, on a fresh ECS, then the median of 3 full runs of the program. Rates are in millions of operations per second, higher is better.
 
+The benchmark program lives on the `benchmarks` branch (`cd benchmark && make run`). It only uses the API subset shared by every version of the library, so the same file also runs against older versions. The last column compares with the design that preceded the current pool/registry/query rework (array-of-structs pools, sorted query caches, no signature masks).
 
-| Operation | Performance | Configuration |
-|-----------|------------|---------------|
-| Component Access | 51.3M ops/s | 100k entities, single component |
-| Entity Creation | 100k in ~10ms | Bulk creation |
-| Component Query | <2ms | 100k entities, 2 components |
+| Operation | 100k entities | 1M entities | Current vs previous design (100k / 1M) |
+|-----------|--------------:|------------:|:--------------------------------------:|
+| Component read, sequential IDs | 1272 | 1272 | 2.7x / 2.7x |
+| Component read, random IDs | 960 | 741 | 2.3x / 2.9x |
+| `entityHasComponent` | 1123 | 1116 | 1.6x / 1.6x |
+| Add component (1 or 2 per entity) | ~270 | ~265 | 1.0x - 1.1x |
+| Add + read a 64-byte component | 283 | 283 | 1.1x / 1.1x |
+| Entity creation | 269 | 272 | 0.78x / 0.71x |
+| Remove component (random order) | 234 | 77 | 1.0x / 0.6x |
+| Entity deletion (2 components) | 25 | 15 | 0.18x / 0.23x |
+| Spawn + despawn lifecycle | 18 | 17 | 0.5x / 0.5x |
+| Churn (delete half, respawn, 10 rounds) | 15 | 9 | 0.5x / 0.4x |
+| Query AllOf, 2 components, all match | 631 | 634 | 1.3x / 1.5x |
+| Query AllOf, 2 components, 10% match | 5997 | 5616 | 8.1x / 8.0x |
+| Query AllOf, 3 components | 1232 | 1266 | 3.0x / 3.2x |
+| Query AnyOf, 2 components | 640 | 589 | more than 1000x |
+| Movement system frame (query + 2 reads + write) | 319 | 320 | 2.2x / 2.2x |
+
+Query rates count `n` entities per query (`n` = total entities, whatever the number of matches). The AnyOf comparison is only indicative: the previous implementation removed duplicates with a linear search and was quadratic.
+
+Memory: an empty `ECS` with its registry takes about 700 KB (the previous design: 64 KB), and an entity with three small components costs about 100 bytes in total.
+
+What these numbers say:
+- Reads, presence checks and multi-component queries are considerably faster than before, and queries that filter down to a small subset benefit the most.
+- Entity creation, and especially **entity deletion**, are slower than in the previous design. `Registry::disableEntity` currently tests every one of the 128 mask bits on each deletion, and creation now maintains generation, mask and alive metadata. Workloads that spawn and despawn entities at a high rate are affected.
+- The previous design's queries did not compile as committed, they were measured with a small local patch.
 
 ## License
 
